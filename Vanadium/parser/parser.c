@@ -7,7 +7,7 @@ const char* instructions[] = {
 	"movrm",
 	"movmr",
 	"calli",
-	"callr"
+	"callr",
 	"cmpri",
 	"cmprr",
 	"cmpmm",
@@ -23,7 +23,10 @@ const char* instructions[] = {
 	"new",
 	"deli",
 	"delr",
-	"bdi"
+	"bdi",
+	"pushi",
+	"pushr",
+	"popr",
 };
 
 enum InstType getInstructionType(const char* str, uint64_t length) {
@@ -96,7 +99,7 @@ Instruction* parseInstructionsFromStr(const char* str, uint64_t start, uint64_t 
 	while (true) {
 		if (i >= end || str[i] == '\n') {
 			if (len != 0) {
-				Instruction inst = parseInstructionFromStr(str, (i - len), end);
+				Instruction inst = parseInstructionFromStr(str, (i - len), i);
 				if (instCount + 1 > capacity) {
 					Instruction* newInstrs = realloc(instrs, sizeof(Instruction) * (capacity * 2));
 					if (!newInstrs) {

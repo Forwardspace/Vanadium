@@ -1,5 +1,7 @@
 #include "interpreter.h"
 
+#define VANADIUM_STACK_SIZE 1024 * 1024 * 16	//16MB
+
 void loadCodeToMemory(Instruction* inst, uint64_t start, uint64_t end, Environment* env) {
 	if (env->instructionMemoryAllocated == 0) {
 		env->instructionMemory = malloc((end - start) * sizeof(Instruction));
@@ -13,18 +15,20 @@ void loadCodeToMemory(Instruction* inst, uint64_t start, uint64_t end, Environme
 	memcpy(env->instructionMemory, inst + (sizeof(Instruction) * start), (end - start) * sizeof(Instruction));
 }
 
-inline uint64_t allocateMemoryCell(Environment* env) {
+inline uint64_t allocateMemoryCell(Environment* env, uint64_t size) {
 	if (env->dataMemoryAllocated == 0) {
 		env->dataMemory = calloc(32, sizeof(MemoryCell));
 		env->dataMemoryAllocated = 32;
 
 		env->dataMemory[0].used = true;
+		env->dataMemory[0].data = calloc(size, 1);
 		return 0;
 	}
 	else {
 		for (uint64_t i = 0; i < env->dataMemoryAllocated; i++) {
 			if (!(env->dataMemory[i].used)) {
 				env->dataMemory[i].used = true;
+				env->dataMemory[i].data = calloc(size, 1);
 				return i;
 			}
 		}
@@ -36,12 +40,34 @@ inline uint64_t allocateMemoryCell(Environment* env) {
 		env->dataMemoryAllocated += 8;
 
 		env->dataMemory[retval].used = true;
+		env->dataMemory[retval].data = calloc(size, 1);
 		return retval;
 	}
 }
 
+inline void allocateStack(Environment* env, uint64_t size) {
+	env->stackcell = allocateMemoryCell(env, size);
+	env->stackcell = 0;
+}
+
+inline void push(Environment* env, uint64_t data) {
+	*((uint64_t*)(env->dataMemory[env->stackcell].data + env->sp)) = data;
+
+	env->sp += sizeof(uint64_t);
+}
+
+inline uint64_t pop(Environment* env) {
+	env->sp -= sizeof(uint64_t);
+
+	return *((uint64_t*)(env->dataMemory[env->stackcell].data + env->sp));
+}
+
 inline void deleteMemoryCell(uint64_t cell, Environment* env) {
 	env->dataMemory[cell].used = false;
+
+	if (env->dataMemory[cell].data) {
+		free(env->dataMemory[cell].data);
+	}
 }
 
 uint64_t instrlen(Instruction* inst) {
@@ -54,9 +80,8 @@ uint64_t instrlen(Instruction* inst) {
 
 void loadConstStringsToMemory(Environment* env, const char** constStrings, uint64_t constStringsCount) {
 	for (uint64_t i = 0; i < constStringsCount; i++) {
-		char* copied = calloc(strlen(constStrings[i]) + 1, 1);
-		strcpy(copied, constStrings[i]);
-		env->dataMemory[allocateMemoryCell(env)].data = copied;
+		//Allocate a new cell for this string and copy it to the cell's data
+		strcpy(env->dataMemory[allocateMemoryCell(env, strlen(constStrings[i]) + 1)].data, constStrings[i]);
 	}
 }
 
@@ -67,6 +92,8 @@ int executeInstructions(Instruction* inst, uint64_t start, uint64_t end, Environ
 
 	loadCodeToMemory(inst, start, end, env);
 	loadConstStringsToMemory(env, constStrings, constStringsCount);
+
+	allocateStack(env, VANADIUM_STACK_SIZE);
 
 	int result;
 	for (uint64_t i = start; i <= end; i++) {
@@ -204,7 +231,7 @@ int executeInstruction(Instruction inst, Environment* env) {
 			return -1;
 		}
 #endif
-		env->registers[reg] = allocateMemoryCell(env);
+		env->registers[reg] = allocateMemoryCell(env, inst.rightArg.imm64);
 		break;
 	}
 	//Delete a memory cell pointed to by an immediate
@@ -246,6 +273,32 @@ int executeInstruction(Instruction inst, Environment* env) {
 		}
 #endif
 		env->di = reg;
+		break;
+	}
+	case PUSHI: {
+		push(env, inst.leftArg.imm64);
+		break;
+	}
+	case PUSHR: {
+		int8_t reg = getRegIndex(inst.leftArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (reg == -1) {
+			return -1;
+		}
+#endif
+		push(env, env->registers[reg]);
+		break;
+	}
+	case POPR: {
+		int8_t reg = getRegIndex(inst.leftArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (reg == -1) {
+			return -1;
+		}
+#endif
+
+		env->registers[reg] = pop(env);
+		break;
 	}
 	}
 

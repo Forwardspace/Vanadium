@@ -32,7 +32,10 @@ enum InstType {
 	NEW,
 	DELI,
 	DELR,
-	BDI
+	BDI,
+	PUSHI,
+	PUSHR,
+	POPR,
 };
 
 enum ArgType {

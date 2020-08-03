@@ -22,4 +22,7 @@ typedef struct Environment_ {
 	uint64_t ip;	//Instruction pointer
 	uint8_t di;		//Data index register
 	uint16_t flags;
+
+	uint64_t stackcell;
+	uint64_t sp;
 } Environment;

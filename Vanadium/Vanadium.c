@@ -5,7 +5,7 @@
 #ifdef VANADIUM_STANDALONE
 int main() {
 	const char* instrs = {
-		"movri ra #1\ncalli #0"
+		"pushi #120\npushi #2020\npopr ra\npopr rc"
 	};
 	
 	const char* strings[] = {
