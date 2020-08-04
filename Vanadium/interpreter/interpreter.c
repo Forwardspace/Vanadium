@@ -2,7 +2,7 @@
 
 #define VANADIUM_STACK_SIZE 1024 * 1024 * 16	//16MB
 
-void loadCodeToMemory(Instruction* inst, uint64_t start, uint64_t end, Environment* env) {
+void loadCodeToMemory(Instruction* __restrict inst, uint64_t start, uint64_t end, Environment* __restrict env) {
 	if (env->instructionMemoryAllocated == 0) {
 		env->instructionMemory = malloc((end - start) * sizeof(Instruction));
 		env->instructionMemoryAllocated = (end - start) * sizeof(Instruction);
@@ -15,7 +15,7 @@ void loadCodeToMemory(Instruction* inst, uint64_t start, uint64_t end, Environme
 	memcpy(env->instructionMemory, inst + (sizeof(Instruction) * start), (end - start) * sizeof(Instruction));
 }
 
-inline uint64_t allocateMemoryCell(Environment* env, uint64_t size) {
+inline uint64_t allocateMemoryCell(Environment* __restrict env, uint64_t size) {
 	if (env->dataMemoryAllocated == 0) {
 		env->dataMemory = calloc(32, sizeof(MemoryCell));
 		env->dataMemoryAllocated = 32;
@@ -47,16 +47,15 @@ inline uint64_t allocateMemoryCell(Environment* env, uint64_t size) {
 
 inline void allocateStack(Environment* env, uint64_t size) {
 	env->stackcell = allocateMemoryCell(env, size);
-	env->stackcell = 0;
 }
 
-inline void push(Environment* env, uint64_t data) {
+void push(Environment* env, uint64_t data) {
 	*((uint64_t*)(env->dataMemory[env->stackcell].data + env->sp)) = data;
 
 	env->sp += sizeof(uint64_t);
 }
 
-inline uint64_t pop(Environment* env) {
+uint64_t pop(Environment* env) {
 	env->sp -= sizeof(uint64_t);
 
 	return *((uint64_t*)(env->dataMemory[env->stackcell].data + env->sp));
@@ -70,7 +69,7 @@ inline void deleteMemoryCell(uint64_t cell, Environment* env) {
 	}
 }
 
-uint64_t instrlen(Instruction* inst) {
+uint64_t instrlen(Instruction* __restrict inst) {
 	uint64_t len = 0;
 	while (inst[len].type != HLT) {
 		len++;
@@ -85,15 +84,21 @@ void loadConstStringsToMemory(Environment* env, const char** constStrings, uint6
 	}
 }
 
-int executeInstructions(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
+uint64_t prepareEnvironment(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
 	if (end == 0) {
 		end = instrlen(inst);
 	}
 
 	loadCodeToMemory(inst, start, end, env);
 	loadConstStringsToMemory(env, constStrings, constStringsCount);
-
+	 
 	allocateStack(env, VANADIUM_STACK_SIZE);
+
+	return end;
+}
+
+int executeInstructions(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
+	end = prepareEnvironment(inst, start, end, env, constStrings, constStringsCount);
 
 	int result;
 	for (uint64_t i = start; i <= end; i++) {
@@ -143,6 +148,21 @@ inline void updateArithmeticFlags(uint64_t res, Environment* env) {
 		env->flags &= ~(ENVIRONMENT_FLAG_LESSER);
 	}
 }
+
+inline void callExternalFunction(Environment* __restrict env, const char* __restrict name) {
+	for (uint64_t i = 0; i < env->numExternalFunctions; i++) {
+		if (strcmp(env->externalFunctions[i].name, name) == 0) {
+			env->externalFunctions[i].ptr(env);
+			
+			return;
+		}
+	}
+
+	//Function not found - set error flag
+	env->flags |= ENVIRONMENT_FLAG_INSTR_FAILED;
+}
+
+////////////////////////////////////////////////////////////
 
 int executeInstruction(Instruction inst, Environment* env) {
 	switch (inst.type) {
@@ -251,16 +271,10 @@ int executeInstruction(Instruction inst, Environment* env) {
 		break;
 	}
 	//Call a function specified by a string in the immediate index
-	case CALLI: {
+	case CALLEXTI: {
 		char* functName = env->dataMemory[inst.leftArg.imm64].data;
 
-		if (strcmp(functName, "debugPrint") == 0) {
-			printf(env->dataMemory[env->registers[0]].data);
-		}
-		else {
-			printf("Unknown function name specified in CALLI");
-			return -1;
-		}
+		callExternalFunction(env, functName);
 
 		break;
 	}

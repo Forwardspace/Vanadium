@@ -17,6 +17,8 @@ enum InstType {
 	MOVMR,
 	CALLI,
 	CALLR,
+	CALLEXTI,
+	CALLEXTR,
 	CMPRI,
 	CMPRR,
 	CMPMM,
