@@ -12,7 +12,14 @@ void debugPrint(Environment* env) {
 
 int main() {
 	const char* instrs = {
-		"pushi #1\ncallexti #0"
+		"bdi ra\n"			//Setup the data index for later
+
+		"movri rb #1\n"		//Copy the letter 'A' to the 5th position in "Hello World!"
+		"movri ra #5\n"
+		"movbmi rb #65\n"
+
+		"pushi #1\n"		//Print the new string
+		"callexti $0\n"
 	};
 	
 	const char* strings[] = {

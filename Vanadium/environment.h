@@ -7,6 +7,7 @@
 
 typedef struct MemoryCell_ {
 	uint8_t* data;
+	uint64_t size;
 	bool used;
 } MemoryCell;
 

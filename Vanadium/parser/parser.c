@@ -3,9 +3,14 @@
 const char* instructions[] = {
 	"movri",
 	"movrr",
-	"movmm", 	//
-	"movrm", 	//
-	"movmr", 	//
+	"movmmrr", 	//
+	"movmmii",
+	"movrmr",
+	"movmir",
+	"movmrr", 	//
+	"movbmi",
+	"movbmr",
+	"movbrm",
 	"calli",	//
 	"callr",	//
 	"callexti",

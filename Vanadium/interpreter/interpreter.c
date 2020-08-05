@@ -47,6 +47,7 @@ inline uint64_t allocateMemoryCell(Environment* __restrict env, uint64_t size) {
 
 inline void allocateStack(Environment* env, uint64_t size) {
 	env->stackcell = allocateMemoryCell(env, size);
+	env->dataMemory[env->stackcell].size = size;
 }
 
 void push(Environment* env, uint64_t data) {
@@ -80,7 +81,11 @@ uint64_t instrlen(Instruction* __restrict inst) {
 void loadConstStringsToMemory(Environment* env, const char** constStrings, uint64_t constStringsCount) {
 	for (uint64_t i = 0; i < constStringsCount; i++) {
 		//Allocate a new cell for this string and copy it to the cell's data
-		strcpy(env->dataMemory[allocateMemoryCell(env, strlen(constStrings[i]) + 1)].data, constStrings[i]);
+		uint64_t size = strlen(constStrings[i]) + 1;
+		uint64_t memoryCell = allocateMemoryCell(env, size);
+
+		strcpy(env->dataMemory[memoryCell].data, constStrings[i]);
+		env->dataMemory[memoryCell].size = size;
 	}
 }
 
@@ -149,9 +154,9 @@ inline void updateArithmeticFlags(uint64_t res, Environment* env) {
 	}
 }
 
-inline void callExternalFunction(Environment* __restrict env, const char* __restrict name) {
+inline void callExternalFunction(Environment* __restrict env, const char* __restrict name, uint64_t size) {
 	for (uint64_t i = 0; i < env->numExternalFunctions; i++) {
-		if (strcmp(env->externalFunctions[i].name, name) == 0) {
+		if (strncmp(env->externalFunctions[i].name, name, size) == 0) {
 			env->externalFunctions[i].ptr(env);
 			
 			return;
@@ -164,6 +169,19 @@ inline void callExternalFunction(Environment* __restrict env, const char* __rest
 
 ////////////////////////////////////////////////////////////
 
+//Note: the following function is quite unreadable to minimize its performance overhead
+//The pseudocode for each instruction is, however, simple:
+//
+//executeInstruction(instruction, environment):
+//	switch (instruction type):
+//		...
+//		case RELEVANTINSTRUCTION:
+//			getRegister(s)FromInstruction()			(optional)
+//			doSomethingBasedOnInstructionType()
+//			modifyFlags();							(optional)
+//
+//			break
+//		...
 int executeInstruction(Instruction inst, Environment* env) {
 	switch (inst.type) {
 	//Stop execution
@@ -182,13 +200,125 @@ int executeInstruction(Instruction inst, Environment* env) {
 	//Copy the value of one register to another
 	case MOVRR: {
 		int8_t regdest = getRegIndex(inst.leftArg.reg);
-		int8_t regsrc = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
 #ifndef VANADIUM_NO_ERROR_CHECKING
 		if (regdest == -1 || regsrc == -1) {
 			return -1;
 		}
 #endif
 		env->registers[regdest] = env->registers[regsrc];
+		break;
+	}
+	//Copy all data from one memory cell pointed to by one register to another (pointed to by another register)
+	case MOVMMRR: {
+		int8_t regdest = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (regdest == -1 || regsrc == -1) {
+			return -1;
+		}
+#endif
+		//Allocate enough space for the copy
+		if (env->dataMemory[env->registers[regdest]].data != NULL) {
+			env->dataMemory[env->registers[regdest]].data = realloc(env->dataMemory[env->registers[regdest]].data, env->dataMemory[env->registers[regsrc]].size);
+		}
+		else {
+			env->dataMemory[env->registers[regdest]].data = malloc(env->dataMemory[regdest].size);
+		}
+		env->dataMemory[env->registers[regdest]].size = env->dataMemory[env->registers[regsrc]].size;
+
+		memcpy(env->dataMemory[env->registers[regdest]].data, env->dataMemory[env->registers[regsrc]].data, env->dataMemory[env->registers[regsrc]].size);
+
+		break;
+	}
+	case MOVMMII: {
+		if (env->dataMemory[inst.leftArg.addr].data != NULL) {
+			env->dataMemory[inst.leftArg.addr].data = realloc(env->dataMemory[inst.leftArg.addr].data, env->dataMemory[inst.rightArg.addr].size);
+		}
+		else {
+			env->dataMemory[inst.leftArg.addr].data = malloc(env->dataMemory[inst.leftArg.addr].size);
+		}
+		env->dataMemory[inst.leftArg.addr].size = env->dataMemory[inst.leftArg.addr].size;
+
+		memcpy(env->dataMemory[inst.leftArg.addr].data, env->dataMemory[inst.rightArg.addr].data, env->dataMemory[inst.rightArg.addr].size);
+
+		break;
+	}
+	//Copy all data from a register to a memory cell pointed to by a value in a register
+	case MOVRMR: {
+		int8_t regdest = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (regdest == -1 || regsrc == -1) {
+			return -1;
+		}
+#endif
+		if (env->dataMemory[env->registers[regdest]].data != NULL) {
+			env->dataMemory[env->registers[regdest]].data = realloc(env->dataMemory[env->registers[regdest]].data, sizeof(uint64_t));
+		}
+		else {
+			env->dataMemory[env->registers[regdest]].data = malloc(sizeof(uint64_t));
+		}
+		env->dataMemory[env->registers[regdest]].size = sizeof(uint64_t);
+
+		*((uint64_t*)(env->dataMemory[env->registers[regdest]].data)) = env->registers[regsrc];
+
+		break;
+	}
+	//Copy an immediate to a memory cell pointed to by a value in a register
+	case MOVMIR: {
+		int8_t reg = getRegIndex(inst.leftArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (reg == -1) {
+			return -1;
+		}
+#endif
+		if (env->dataMemory[env->registers[reg]].data != NULL) {
+			env->dataMemory[env->registers[reg]].data = realloc(env->dataMemory[env->registers[reg]].data, sizeof(uint64_t));
+		}
+		else {
+			env->dataMemory[env->registers[reg]].data = malloc(sizeof(uint64_t));
+		}
+		env->dataMemory[env->registers[reg]].size = sizeof(uint64_t);
+
+		*((uint64_t*)(env->dataMemory[env->registers[reg]].data)) = inst.rightArg.imm64;
+
+		break;
+	}
+	//Copy a byte to a memory cell (pointed to by a register) to a position indexed by the data index
+	case MOVBMIR: {
+		int8_t reg = getRegIndex(inst.leftArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (reg == -1) {
+			return -1;
+		}
+#endif
+		env->dataMemory[env->registers[reg]].data[env->registers[env->di]] = inst.rightArg.imm8;
+		break;
+	}
+	//Copy a byte stored in a register to a memory cell (pointed to by another register) to a position indexed by the data index
+	case MOVBMRR: {
+		int8_t regdest = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (regdest == -1 || regsrc == -1) {
+			return -1;
+		}
+#endif
+		env->dataMemory[env->registers[regdest]].data[env->registers[env->di]] = (uint8_t)(env->registers[regsrc]);
+		break;
+	}
+	//Copy a byte stored in a memory cell pointed to by the data index to a register
+	case MOVBRMR: {
+		int8_t regdest = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
+#ifndef VANADIUM_NO_ERROR_CHECKING
+		if (regdest == -1 || regsrc == -1) {
+			return -1;
+		}
+#endif
+		env->registers[regdest] = env->dataMemory[env->registers[regsrc]].data[env->registers[env->di]];
+
 		break;
 	}
 	//Copy the value of an immediate to a register
@@ -202,10 +332,10 @@ int executeInstruction(Instruction inst, Environment* env) {
 		updateArithmeticFlags((env->registers[reg]) - inst.rightArg.imm64, env);
 		break;
 	}
-	//Compare the value of one register with the value of another
+	//Compare the value of one register with the value of another by subtraction
 	case CMPRR: {
 		int8_t regdest = getRegIndex(inst.leftArg.reg);
-		int8_t regsrc = getRegIndex(inst.leftArg.reg);
+		int8_t regsrc = getRegIndex(inst.rightArg.reg);
 #ifndef VANADIUM_NO_ERROR_CHECKING
 		if (regdest == -1 || regsrc == -1) {
 			return -1;
@@ -274,7 +404,7 @@ int executeInstruction(Instruction inst, Environment* env) {
 	case CALLEXTI: {
 		char* functName = env->dataMemory[inst.leftArg.imm64].data;
 
-		callExternalFunction(env, functName);
+		callExternalFunction(env, functName, env->dataMemory[inst.leftArg.imm64].size);
 
 		break;
 	}
