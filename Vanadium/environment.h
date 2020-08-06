@@ -20,7 +20,7 @@ typedef struct AbstractExternalFunction_ {
 } AbstractExternalFunction;
 
 typedef struct AbstractInternalFunction_ {
-	uint64_t name;		//Index of string table
+	char* name;		//Index of string table
 	uint64_t location;
 } AbstractInternalFunction;
 

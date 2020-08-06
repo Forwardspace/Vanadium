@@ -72,7 +72,7 @@ inline void deleteMemoryCell(uint64_t cell, Environment* env) {
 
 uint64_t instrlen(Instruction* __restrict inst) {
 	uint64_t len = 0;
-	while (inst[len].type != HLT) {
+	while (inst[len].type != END) {
 		len++;
 	}
 	return ++len;
@@ -102,16 +102,47 @@ uint64_t prepareEnvironment(Instruction* inst, uint64_t start, uint64_t end, Env
 	return end;
 }
 
-int executeInstructions(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
+inline void declareInternalFunction(Environment* __restrict env, uint64_t ip, const char* __restrict name, uint64_t nameLength) {
+	if (env->internalFunctionsAllocated == 0) {
+		env->internalFunctions = malloc(sizeof(AbstractExternalFunction) * 8);
+		env->internalFunctionsAllocated = 8;
+	}
+	else if (env->numInternalFunctions + 1 > env->internalFunctionsAllocated) {
+		env->internalFunctionsAllocated += 8;
+		env->internalFunctions = realloc(env->internalFunctions, sizeof(AbstractExternalFunction) * env->internalFunctionsAllocated);
+	}
+
+	AbstractInternalFunction funct;
+	funct.location = ip;
+	funct.name = calloc(nameLength + 1, 1);
+
+	memcpy(funct.name, name, nameLength);
+
+	env->internalFunctions[env->numInternalFunctions] = funct;
+	env->numInternalFunctions++;
+}
+
+void preprocessInstructions(Environment* env, Instruction* inst, uint64_t start, uint64_t end) {
+	for (uint64_t i = start; i < end; i++) {
+		switch (inst[i].type) {
+		case DECLFUNCT:
+			declareInternalFunction(env, i + 1, env->dataMemory[inst[i].leftArg.addr].data, env->dataMemory[inst[i].leftArg.addr].size);
+			break;
+		}
+	}
+}
+
+void prepareInstructions(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
 	end = prepareEnvironment(inst, start, end, env, constStrings, constStringsCount);
+	preprocessInstructions(env, inst, start, end);
+}
+
+int executeInstructions(Instruction* inst, uint64_t start, uint64_t end, Environment* env, const char** constStrings, uint64_t constStringsCount) {
+	prepareInstructions(inst, start, end, env, constStrings, constStringsCount);
 
 	int result;
 	for (uint64_t i = start; i <= end; i++) {
 		if ((result = step(env)) != 0) {
-			if (result == 1) {
-				//Hlt - still ok
-				return 0;
-			}
 			return result;
 		}
 	}
@@ -186,6 +217,7 @@ int executeInstruction(Instruction inst, Environment* env) {
 	switch (inst.type) {
 	//Stop execution
 	case HLT:
+	case END:
 		return 1;
 	case MOVRI: {
 		int8_t reg = getRegIndex(inst.leftArg.reg);

@@ -29,6 +29,10 @@ bool callInternalFunction(Environment* env, const char* name) {
 	for (uint64_t i = 0; i < env->numInternalFunctions; i++) {
 		if (strcmp(env->internalFunctions[i].name, name) == 0) {
 			env->ip = env->internalFunctions[i].location;
+
+			//Run until hlt or otherwise done
+			while (step(env) == 0);
+
 			return true;
 		}
 	}

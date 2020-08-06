@@ -15,6 +15,7 @@ const char* instructions[] = {
 	"callr",	//
 	"callexti",
 	"callextr",
+	"declfunct",
 	"cmpri",
 	"cmprr",
 	"cmpmm",
@@ -27,6 +28,7 @@ const char* instructions[] = {
 	"stm",
 	"lom",
 	"hlt",
+	"end",
 	"new",
 	"deli",
 	"delr",
@@ -133,7 +135,7 @@ Instruction* parseInstructionsFromStr(const char* str, uint64_t start, uint64_t 
 
 	//Insert a hlt instruction
 	Instruction endInstr;
-	endInstr.type = HLT;
+	endInstr.type = END;
 
 	if (instCount + 1 > capacity) {
 		Instruction* newInstrs = realloc(instrs, sizeof(Instruction) * (capacity + 1));
